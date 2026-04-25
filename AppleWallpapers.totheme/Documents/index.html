@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Apple Wallpapers</title>
+<style>
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #000;
+}
+
+body {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.wallpaper {
+  position: fixed;
+  inset: 0;
+  background-color: #000;
+  background-position: center center;
+  background-repeat: no-repeat;
+  background-size: 100% auto;
+  opacity: 0;
+  transition: opacity 1800ms ease-in-out;
+}
+
+.wallpaper.is-visible {
+  opacity: 1;
+}
+</style>
+</head>
+<body ondragstart="return false;" ondrop="return false;">
+<div id="wallpaper-a" class="wallpaper"></div>
+<div id="wallpaper-b" class="wallpaper"></div>
+
+<script src="manifest.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  var CHANGE_INTERVAL_MS = 0.25 * 60 * 1000;
+  var RETRY_INTERVAL_MS = 0.25 * 1000;
+  var layers = [
+    document.getElementById("wallpaper-a"),
+    document.getElementById("wallpaper-b")
+  ];
+  var IMAGE_DIRECTORY = "images/";
+  var IMAGE_EXTENSION_PATTERN = /\.(avif|gif|heic|heif|jpe?g|png|webp)$/i;
+  var STORAGE_PREFIX = "AppleWallpapersSlideshow:";
+  var images = [];
+  var queue = [];
+  var visibleLayer = 0;
+  var lastShown = "";
+  var timer = null;
+
+  function cssUrl(url) {
+    return "url(\"" + url.replace(/"/g, "\\\"") + "\")";
+  }
+
+  function preload(url, onDone, onFail) {
+    var image = new Image();
+    image.onload = onDone;
+    image.onerror = onFail;
+    image.src = url;
+  }
+
+  function normalizeImagePath(path) {
+    if (path.indexOf("/") === -1) {
+      return IMAGE_DIRECTORY + path;
+    }
+
+    return path;
+  }
+
+  function uniqueImageList(list) {
+    var seen = {};
+
+    return list.map(normalizeImagePath).filter(function (path) {
+      var key = path.toLowerCase();
+
+      if (!IMAGE_EXTENSION_PATTERN.test(path) || seen[key]) {
+        return false;
+      }
+
+      seen[key] = true;
+      return true;
+    });
+  }
+
+  function storageKey() {
+    return STORAGE_PREFIX + images.join("|");
+  }
+
+  function loadState() {
+    var raw;
+    var state;
+
+    try {
+      raw = window.sessionStorage.getItem(storageKey());
+      state = raw ? JSON.parse(raw) : null;
+    } catch (error) {
+      return;
+    }
+
+    if (!state || !Array.isArray(state.queue)) {
+      return;
+    }
+
+    queue = state.queue.filter(function (path) {
+      return images.indexOf(path) !== -1;
+    });
+    lastShown = typeof state.lastShown === "string" ? state.lastShown : "";
+  }
+
+  function saveState() {
+    try {
+      window.sessionStorage.setItem(storageKey(), JSON.stringify({
+        queue: queue,
+        lastShown: lastShown
+      }));
+    } catch (error) {
+      return;
+    }
+  }
+
+  function shuffle(list) {
+    var i;
+    var j;
+    var temp;
+
+    for (i = list.length - 1; i > 0; i -= 1) {
+      j = Math.floor(Math.random() * (i + 1));
+      temp = list[i];
+      list[i] = list[j];
+      list[j] = temp;
+    }
+
+    return list;
+  }
+
+  function refillQueue() {
+    var swapIndex;
+    var first;
+
+    queue = shuffle(images.slice());
+
+    if (queue.length > 1 && queue[0] === lastShown) {
+      for (swapIndex = 1; swapIndex < queue.length; swapIndex += 1) {
+        if (queue[swapIndex] !== lastShown) {
+          first = queue[0];
+          queue[0] = queue[swapIndex];
+          queue[swapIndex] = first;
+          break;
+        }
+      }
+    }
+
+    saveState();
+  }
+
+  function nextImage() {
+    var next;
+
+    if (!queue.length) {
+      refillQueue();
+    }
+
+    next = queue.shift();
+    saveState();
+    return next;
+  }
+
+  function parseDirectoryListing(html) {
+    var parser = new DOMParser();
+    var doc = parser.parseFromString(html, "text/html");
+    var links = doc.querySelectorAll("a[href]");
+    var found = [];
+    var index;
+    var href;
+
+    for (index = 0; index < links.length; index += 1) {
+      href = links[index].getAttribute("href") || "";
+      href = decodeURIComponent(href.split("?")[0].split("#")[0]);
+
+      if (href.indexOf("/") !== -1) {
+        href = href.substring(href.lastIndexOf("/") + 1);
+      }
+
+      found.push(href);
+    }
+
+    return uniqueImageList(found);
+  }
+
+  function loadImages(onDone) {
+    var manifestImages = uniqueImageList(window.TIMEOUT_WALLPAPER_IMAGES || []);
+
+    if (!window.fetch) {
+      onDone(manifestImages);
+      return;
+    }
+
+    window.fetch(IMAGE_DIRECTORY, { cache: "no-store" }).then(function (response) {
+      if (!response.ok) {
+        throw new Error("Directory listing unavailable");
+      }
+
+      return response.text();
+    }).then(function (html) {
+      var directoryImages = parseDirectoryListing(html);
+      onDone(directoryImages.length ? directoryImages : manifestImages);
+    }).catch(function () {
+      onDone(manifestImages);
+    });
+  }
+
+  function schedule(delay) {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(showNext, delay);
+  }
+
+  function showNext() {
+    var url;
+
+    if (!images.length) {
+      return;
+    }
+
+    url = nextImage();
+    showImage(url);
+  }
+
+  function showImage(url) {
+    preload(url, function () {
+      var nextLayer = 1 - visibleLayer;
+      layers[nextLayer].style.backgroundImage = cssUrl(url);
+      layers[nextLayer].classList.add("is-visible");
+      layers[visibleLayer].classList.remove("is-visible");
+      visibleLayer = nextLayer;
+      lastShown = url;
+      saveState();
+
+      if (queue.length) {
+        preload(queue[0], function () {}, function () {});
+      }
+
+      schedule(CHANGE_INTERVAL_MS);
+    }, function () {
+      schedule(RETRY_INTERVAL_MS);
+    });
+  }
+
+  loadImages(function (loadedImages) {
+    images = loadedImages;
+    loadState();
+    showNext();
+  });
+}());
+</script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+{
+  "author": {
+    "name" : "Jose Antonio Lopez",
+    "email" : "jalopezsuarez@gmail.com",
+    "url" : "https://github.com/jalopezsuarez"
+  },
+  "credits" : {
+    "name" : "Dejal Time Out",
+    "url" : "https://dejal.com/timeout/"
+  },
+  "comments": "Apple Wallpapers random slideshow. Changes every 15 seconds with a fade transition. Run 'python3 manifest.py' from Documents/ to index images/ into manifest.js.",
+  "rootDocument": "index.html",
+  "created": "2026-01-01",
+  "identifier": "com.github.jalopezsuarez.applewallpapers",
+  "version": 7,
+  "modified": "2026-04-25",
+  "name": "AppleWallpapers"
+}
